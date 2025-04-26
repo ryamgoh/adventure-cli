@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -51,15 +52,32 @@ func RunChoiceBuilder(state *GameState) *huh.Form {
 
 func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 	if nChoices <= 0 {
-		return nil, errors.New("There cannot be less than 1 choice")
+		return nil, errors.New("there cannot be less than 1 choice")
 	}
 
-	randomOptions := make([]huh.Option[string], nChoices)
-	for i := range nChoices {
-		scenarioToReturn := CreateRandomScenarioChoice()
-		option := huh.NewOption(scenarioToReturn, scenarioToReturn)
-		randomOptions[i] = option
+	var wg sync.WaitGroup
+	var mu sync.RWMutex
+	results := make(chan string, nChoices)
+	randomOptions := make([]huh.Option[string], 0, nChoices)
+
+	// Launch goroutines to generate scenarios concurrently
+	for range nChoices {
+		wg.Add(1)
+		go func() {
+			results <- CreateRandomScenarioChoice()
+			wg.Done()
+		}()
+		go func() {
+			scenario := <-results
+			mu.Lock()
+			randomOptions = append(randomOptions, huh.NewOption(scenario, scenario))
+			fmt.Println(scenario)
+			mu.Unlock()
+		}()
 	}
+
+	// await for all goroutines to finish
+	wg.Wait()
 
 	return huh.NewForm(
 		huh.NewGroup(
