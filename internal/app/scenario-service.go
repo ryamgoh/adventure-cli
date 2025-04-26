@@ -65,7 +65,6 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 		wg.Add(1)
 		go func() {
 			results <- CreateRandomScenarioChoice()
-			wg.Done()
 		}()
 		go func() {
 			scenario := <-results
@@ -73,6 +72,7 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 			randomOptions = append(randomOptions, huh.NewOption(scenario, scenario))
 			fmt.Println(scenario)
 			mu.Unlock()
+			wg.Done()
 		}()
 	}
 
