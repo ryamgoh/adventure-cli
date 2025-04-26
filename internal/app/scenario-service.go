@@ -30,22 +30,30 @@ func InitStory(state *GameState) *huh.Form {
 				).
 				Value(&state.Age),
 		),
-	)
-}
-
-func RunChoiceBuilder(state *GameState) *huh.Form {
-	// Fixed: Use a constant value or meaningful options
-	burgerOptions := []huh.Option[int]{
-		huh.NewOption("Healthy Burger (5 HP)", 5),
-		huh.NewOption("Cheeseburger (3 HP)", 3),
-		huh.NewOption("Mystery Burger", rand.Intn(10)+1),
-	}
-
-	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[int]().
-				Title("Choose your burger").
-				Options(burgerOptions...).
+				Title("Whats your attack damage?").
+				Options(
+					huh.NewOption("Weak", 20 + rand.Intn(8)),
+					huh.NewOption("Normal", 30 + rand.Intn(5)),
+					huh.NewOption("Strong", 45 + rand.Intn(8)),
+				).
+				Value(&state.AttackDmg),
+			huh.NewSelect[int]().
+				Title("Whats your defence?").
+				Options(
+					huh.NewOption("Weak", 20 + rand.Intn(8)),
+					huh.NewOption("Normal", 30 + rand.Intn(5)),
+					huh.NewOption("Strong", 45 + rand.Intn(8)),
+				).
+				Value(&state.Defence),
+			huh.NewSelect[int]().
+				Title("Whats your health?").
+				Options(
+					huh.NewOption("Weak", 20 + rand.Intn(8)),
+					huh.NewOption("Normal", 30 + rand.Intn(5)),
+					huh.NewOption("Strong", 45 + rand.Intn(8)),
+				).
 				Value(&state.Health),
 		),
 	)
@@ -86,9 +94,9 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Choose your next move").
+				Title(state.Narration.Description).
 				Options(randomOptions...).
-				Value(&state.NextSteps),
+				Value(&state.NextSteps.Description),
 		),
 	), nil
 }

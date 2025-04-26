@@ -12,6 +12,15 @@ type GameEngine struct {
 
 func (g *GameEngine) initGameEngine() {
 	g.State = &GameState{}
+	g.State.EventHistory = make([]Event, 0, 100)
+	g.State.NextSteps = Event{
+		Role:        User,
+		Description: "",
+	}
+	g.State.Narration = Event{
+		Role:        Narrator,
+		Description: "",
+	}
 }
 
 func (g *GameEngine) Run() {
@@ -20,13 +29,16 @@ func (g *GameEngine) Run() {
 	var error error
 	var scenario *huh.Form
 	runScenario(InitStory(state))
+	state.CreateSessionOnUser()
+	state.AddEventToHistory(state.NextSteps)
 	for {
+		state.GetNextNarration()
 		scenario, error = RunChoiceBuilderN(state, 4)
 		if error != nil {
 			break
 		}
-		log.Println("Running scenario...")
 		runScenario(scenario)
+		state.AddAllEvents()
 		state.AnnounceGameState()
 	}
 }
