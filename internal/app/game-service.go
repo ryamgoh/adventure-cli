@@ -19,8 +19,7 @@ func (g *GameEngine) Run() {
 	var state = g.State
 	var error error
 	var scenario *huh.Form
-	scenario = InitStory(state)
-	runScenario(scenario)
+	runScenario(InitStory(state))
 	for {
 		// scenario = RunChoiceBuilder(state)
 		scenario, error = RunChoiceBuilderN(state, 4)
