@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 )
 
 // Creates the scenario background
@@ -57,27 +58,30 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 
 	var wg sync.WaitGroup
 	var mu sync.RWMutex
-	results := make(chan string, nChoices)
 	randomOptions := make([]huh.Option[string], 0, nChoices)
 
 	// Launch goroutines to generate scenarios concurrently
 	for range nChoices {
 		wg.Add(1)
 		go func() {
-			results <- CreateRandomScenarioChoice()
-		}()
-		go func() {
-			scenario := <-results
+			defer wg.Done()
+			scenario := CreateRandomScenarioChoice()
 			mu.Lock()
 			randomOptions = append(randomOptions, huh.NewOption(scenario, scenario))
-			fmt.Println(scenario)
 			mu.Unlock()
-			wg.Done()
 		}()
 	}
 
-	// await for all goroutines to finish
-	wg.Wait()
+	// Spinner is only for waiting, so just wrap wg.Wait()
+	err := spinner.New().
+		Title("Generating new choices...").
+		Action(func() {
+			wg.Wait() // spinner displays while we're waiting
+		}).
+		Run()
+	if err != nil {
+		return nil, err
+	}
 
 	return huh.NewForm(
 		huh.NewGroup(

@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-type GameEngine struct{
+type GameEngine struct {
 	State *GameState
 }
 
@@ -21,11 +21,11 @@ func (g *GameEngine) Run() {
 	var scenario *huh.Form
 	runScenario(InitStory(state))
 	for {
-		// scenario = RunChoiceBuilder(state)
 		scenario, error = RunChoiceBuilderN(state, 4)
-		if (error != nil) {
+		if error != nil {
 			break
 		}
+		log.Println("Running scenario...")
 		runScenario(scenario)
 		state.AnnounceGameState()
 	}
