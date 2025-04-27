@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	MIN_OPTIONS int = 2
+	MIN_OPTIONS  int = 2
+	MAX_OPTIONS  int = 4
+	MAX_RETRIES  int = 5
 )
 
 // Creates the scenario background
@@ -91,7 +93,9 @@ func CallOpenAILLM(
 
 	systemPrompt := `
 		You are a creative interactive story engine. 
-		Given the story history, the last narration, and the last user action, return ONLY a valid JSON object of this form:
+		Given the story history, the last narration, and the last user action.
+		There can be between 2 to 4 options. No more no less.
+		return ONLY a valid JSON object of this form:
 			{
 				"narration": "...",
 				"options": [
@@ -113,7 +117,7 @@ func CallOpenAILLM(
 		LAST USER ACTION: 
 		%s
 
-		Strictly reply with one valid JSON object using the above schema, no extra commentary.`,
+		Strictly reply with one valid JSON object with 2 to 4 options using the above schema, no extra commentary.`,
 		systemPrompt, historySb.String(), currentNarration, lastUserOption)
 
 	resp, err := llm.Call(ctx, fullPrompt)
@@ -132,16 +136,16 @@ func CallOpenAILLM(
 
 	var parsed LLMGameResponse
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
-		log.Println("parsed")
-		return "", nil, 
-		fmt.Errorf("invalid LLM JSON: %w\nRaw response: %s", 
-			err, resp)
+		return "",
+			nil,
+			fmt.Errorf("invalid LLM JSON: %w\nRaw response: %s",
+				err, resp)
 	}
 	if len(parsed.Options) < MIN_OPTIONS {
-		log.Println("parsed")
-		return "", nil, 
-		fmt.Errorf("expected at least %d options, got %d, response: %s", 
-			MIN_OPTIONS, len(parsed.Options), resp)
+		return "",
+			nil,
+			fmt.Errorf("expected at least %d options, got %d, response: %s",
+				MIN_OPTIONS, len(parsed.Options), resp)
 	}
 	return parsed.Narration, parsed.Options, nil
 }
@@ -171,21 +175,30 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 		return nil, fmt.Errorf("failed to initialize OpenAI client: %w", err)
 	}
 
-	narration, options, err := CallOpenAILLM(
-		ctx, openaiLLM,
-		state.EventHistory,
-		state.NextSteps.Description,
-		state.Narration.Description,
+	// Make call to LLM
+	var (
+		narration string
+		options   []string
+		retryErr  error
 	)
-	if err != nil {
-		log.Printf("%v", err)
-		return nil, err
+	for tries:= 1; tries <= MAX_RETRIES; tries++ {
+		narration, options, retryErr = CallOpenAILLM(
+			ctx, openaiLLM, state.EventHistory,
+			state.NextSteps.Description, state.Narration.Description,
+		)
+		if retryErr == nil && len(options) >= MIN_OPTIONS && len(options) <= MAX_OPTIONS {
+			break
+		}
+		if tries >= MAX_RETRIES {
+			return nil, fmt.Errorf("took too long to retry")
+		}
+		log.Printf("Retry %d/%d: %v", tries, MAX_RETRIES, retryErr)
 	}
-	log.Println("New Narration", narration)
-	log.Println("New Options", options)
 
+	// Update narration
 	state.Narration.Description = narration
-	randomOptions := make([]huh.Option[string], 0, 4)
+
+	randomOptions := make([]huh.Option[string], 0, len(options))
 	for _, opt := range options {
 		randomOptions = append(randomOptions, huh.NewOption(opt, opt))
 	}
