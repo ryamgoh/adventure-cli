@@ -32,7 +32,6 @@ func (g *GameEngine) Run() {
 	state.CreateSessionOnUser()
 	state.AddEventToHistory(state.NextSteps)
 	for {
-		state.GetNextNarration()
 		scenario, error = RunChoiceBuilderN(state, 4)
 		if error != nil {
 			break
@@ -41,6 +40,7 @@ func (g *GameEngine) Run() {
 		state.AddAllEvents()
 		state.AnnounceGameState()
 	}
+	log.Fatal("Broken out of loop")
 }
 
 func runScenario(scenario *huh.Form) {
