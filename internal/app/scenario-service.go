@@ -14,6 +14,10 @@ import (
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
+const (
+	MIN_OPTIONS int = 2
+)
+
 // Creates the scenario background
 func InitStory(state *GameState) *huh.Form {
 	return huh.NewForm(
@@ -76,8 +80,8 @@ func CallOpenAILLM(
 	lastUserOption string,
 	currentNarration string,
 ) (
-	narration string, 
-	options []string, 
+	narration string,
+	options []string,
 	err error) {
 
 	var historySb strings.Builder
@@ -85,31 +89,32 @@ func CallOpenAILLM(
 		historySb.WriteString(fmt.Sprintf("%s: %s\n", evt.Role, evt.Description))
 	}
 
-	systemPrompt := `You are a creative interactive story engine. 
+	systemPrompt := `
+		You are a creative interactive story engine. 
 		Given the story history, the last narration, and the last user action, return ONLY a valid JSON object of this form:
 			{
 				"narration": "...",
 				"options": [
-					"...",
-					"...",
-					"...",
 					"..."
 				]
 			}
 		`
 
-	fullPrompt := fmt.Sprintf(`%s
+	fullPrompt := fmt.Sprintf(`
+		SYSTEM NARRATION: 
+		%s
+
 		STORY HISTORY:
 		%s
 
-		LAST NARRATION: %s
+		LAST NARRATION: 
+		%s
 
-		LAST USER ACTION: %s
+		LAST USER ACTION: 
+		%s
 
 		Strictly reply with one valid JSON object using the above schema, no extra commentary.`,
 		systemPrompt, historySb.String(), currentNarration, lastUserOption)
-
-	log.Println("Full Prompt", fullPrompt)
 
 	resp, err := llm.Call(ctx, fullPrompt)
 	if err != nil {
@@ -127,18 +132,24 @@ func CallOpenAILLM(
 
 	var parsed LLMGameResponse
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
-		return "", nil, fmt.Errorf("invalid LLM JSON: %w\nRaw response: %s", err, resp)
+		log.Println("parsed")
+		return "", nil, 
+		fmt.Errorf("invalid LLM JSON: %w\nRaw response: %s", 
+			err, resp)
 	}
-	if len(parsed.Options) != 4 {
-		return "", nil, fmt.Errorf("expected 4 options, got %d, response: %s", len(parsed.Options), resp)
+	if len(parsed.Options) < MIN_OPTIONS {
+		log.Println("parsed")
+		return "", nil, 
+		fmt.Errorf("expected at least %d options, got %d, response: %s", 
+			MIN_OPTIONS, len(parsed.Options), resp)
 	}
 	return parsed.Narration, parsed.Options, nil
 }
 
 // Usage in your choice builder:
 func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
-	if nChoices != 4 {
-		return nil, fmt.Errorf("OpenAI LLM expects exactly 4 options for this prompt style")
+	if nChoices < MIN_OPTIONS {
+		return nil, fmt.Errorf("OpenAI LLM expects exactly %d options for this prompt style", MIN_OPTIONS)
 	}
 
 	// Load environment variables from .env file
@@ -167,11 +178,11 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 		state.Narration.Description,
 	)
 	if err != nil {
+		log.Printf("%v", err)
 		return nil, err
 	}
 	log.Println("New Narration", narration)
 	log.Println("New Options", options)
-
 
 	state.Narration.Description = narration
 	randomOptions := make([]huh.Option[string], 0, 4)
@@ -188,4 +199,3 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 		),
 	), nil
 }
-
