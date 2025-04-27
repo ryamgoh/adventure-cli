@@ -1,14 +1,17 @@
 package app
 
 import (
-	"errors"
+	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
-	"sync"
-	"time"
+	"os"
+	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/huh/spinner"
+	"github.com/joho/godotenv"
+	"github.com/tmc/langchaingo/llms/openai"
 )
 
 // Creates the scenario background
@@ -34,61 +37,146 @@ func InitStory(state *GameState) *huh.Form {
 			huh.NewSelect[int]().
 				Title("Whats your attack damage?").
 				Options(
-					huh.NewOption("Weak", 20 + rand.Intn(8)),
-					huh.NewOption("Normal", 30 + rand.Intn(5)),
-					huh.NewOption("Strong", 45 + rand.Intn(8)),
+					huh.NewOption("Weak", 20+rand.Intn(8)),
+					huh.NewOption("Normal", 30+rand.Intn(5)),
+					huh.NewOption("Strong", 45+rand.Intn(8)),
 				).
 				Value(&state.AttackDmg),
 			huh.NewSelect[int]().
 				Title("Whats your defence?").
 				Options(
-					huh.NewOption("Weak", 20 + rand.Intn(8)),
-					huh.NewOption("Normal", 30 + rand.Intn(5)),
-					huh.NewOption("Strong", 45 + rand.Intn(8)),
+					huh.NewOption("Weak", 20+rand.Intn(8)),
+					huh.NewOption("Normal", 30+rand.Intn(5)),
+					huh.NewOption("Strong", 45+rand.Intn(8)),
 				).
 				Value(&state.Defence),
 			huh.NewSelect[int]().
 				Title("Whats your health?").
 				Options(
-					huh.NewOption("Weak", 20 + rand.Intn(8)),
-					huh.NewOption("Normal", 30 + rand.Intn(5)),
-					huh.NewOption("Strong", 45 + rand.Intn(8)),
+					huh.NewOption("Weak", 20+rand.Intn(8)),
+					huh.NewOption("Normal", 30+rand.Intn(5)),
+					huh.NewOption("Strong", 45+rand.Intn(8)),
 				).
 				Value(&state.Health),
 		),
 	)
 }
 
+// LLMGameResponse holds the expected response format from the LLM
+type LLMGameResponse struct {
+	Narration string   `json:"narration"`
+	Options   []string `json:"options"`
+}
+
+// CallOpenAILLM gets narration and 4 options from OpenAI given history, narration, and user option
+func CallOpenAILLM(
+	ctx context.Context,
+	llm *openai.LLM,
+	eventHistory []Event,
+	lastUserOption string,
+	currentNarration string,
+) (
+	narration string, 
+	options []string, 
+	err error) {
+
+	var historySb strings.Builder
+	for _, evt := range eventHistory {
+		historySb.WriteString(fmt.Sprintf("%s: %s\n", evt.Role, evt.Description))
+	}
+
+	systemPrompt := `You are a creative interactive story engine. 
+		Given the story history, the last narration, and the last user action, return ONLY a valid JSON object of this form:
+			{
+				"narration": "...",
+				"options": [
+					"...",
+					"...",
+					"...",
+					"..."
+				]
+			}
+		`
+
+	fullPrompt := fmt.Sprintf(`%s
+		STORY HISTORY:
+		%s
+
+		LAST NARRATION: %s
+
+		LAST USER ACTION: %s
+
+		Strictly reply with one valid JSON object using the above schema, no extra commentary.`,
+		systemPrompt, historySb.String(), currentNarration, lastUserOption)
+
+	log.Println("Full Prompt", fullPrompt)
+
+	resp, err := llm.Call(ctx, fullPrompt)
+	if err != nil {
+		return "", nil, fmt.Errorf("LLM call failed: %w", err)
+	}
+
+	// Sometimes the model returns preamble, so pick the first JSON found
+	jsonStart := strings.Index(resp, "{")
+	if jsonStart < 0 {
+		return "", nil, fmt.Errorf("no JSON found in LLM response: %q", resp)
+	}
+	trimmed := resp[jsonStart:]
+
+	log.Println("Trimmed", trimmed)
+
+	var parsed LLMGameResponse
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return "", nil, fmt.Errorf("invalid LLM JSON: %w\nRaw response: %s", err, resp)
+	}
+	if len(parsed.Options) != 4 {
+		return "", nil, fmt.Errorf("expected 4 options, got %d, response: %s", len(parsed.Options), resp)
+	}
+	return parsed.Narration, parsed.Options, nil
+}
+
+// Usage in your choice builder:
 func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
-	if nChoices <= 0 {
-		return nil, errors.New("there cannot be less than 1 choice")
+	if nChoices != 4 {
+		return nil, fmt.Errorf("OpenAI LLM expects exactly 4 options for this prompt style")
 	}
 
-	var wg sync.WaitGroup
-	var mu sync.RWMutex
-	randomOptions := make([]huh.Option[string], 0, nChoices)
-
-	// Launch goroutines to generate scenarios concurrently
-	for range nChoices {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			scenario := CreateRandomScenarioChoice()
-			mu.Lock()
-			randomOptions = append(randomOptions, huh.NewOption(scenario, scenario))
-			mu.Unlock()
-		}()
+	// Load environment variables from .env file
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Warning: Could not load .env file - using system environment variables")
 	}
 
-	// Spinner is only for waiting, so just wrap wg.Wait()
-	err := spinner.New().
-		Title("Generating new choices...").
-		Action(func() {
-			wg.Wait() // spinner displays while we're waiting
-		}).
-		Run()
+	// Get API key from environment
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
+	}
+
+	ctx := context.Background()
+	// Initialize OpenAI client
+	openaiLLM, err := openai.New(openai.WithToken(apiKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize OpenAI client: %w", err)
+	}
+
+	narration, options, err := CallOpenAILLM(
+		ctx, openaiLLM,
+		state.EventHistory,
+		state.NextSteps.Description,
+		state.Narration.Description,
+	)
 	if err != nil {
 		return nil, err
+	}
+	log.Println("New Narration", narration)
+	log.Println("New Options", options)
+
+
+	state.Narration.Description = narration
+	randomOptions := make([]huh.Option[string], 0, 4)
+	for _, opt := range options {
+		randomOptions = append(randomOptions, huh.NewOption(opt, opt))
 	}
 
 	return huh.NewForm(
@@ -101,12 +189,3 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 	), nil
 }
 
-func CreateRandomScenarioChoice() string {
-	timeNow := time.Now()
-
-	// Generate a random delay between 1-5 seconds
-	delay := time.Second * time.Duration(1+rand.Intn(4)) // 1-5 seconds
-	time.Sleep(delay)
-
-	return fmt.Sprintf("Random scenario %v", time.Since(timeNow))
-}
