@@ -27,7 +27,7 @@ func (es *EventState) AddEventToHistory(e Event) {
 	es.EventHistory = append(es.EventHistory, e)
 }
 
-func (es *EventState) AddAllEvents() {
+func (es *EventState) AddEventsToHistory() {
 	es.AddEventToHistory(es.Narration)
 	es.AddEventToHistory(es.NextSteps)
 }

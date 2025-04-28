@@ -32,12 +32,12 @@ func (g *GameEngine) Run() {
 	state.CreateSessionOnUser()
 	state.AddEventToHistory(state.NextSteps)
 	for {
-		scenario, error = RunChoiceBuilderN(state, 4)
+		scenario, error = GetChoicesFromLlm(state)
 		if error != nil {
 			break
 		}
 		runScenario(scenario)
-		state.AddAllEvents()
+		state.AddEventsToHistory()
 		state.AnnounceGameState()
 	}
 	log.Fatal("Broken out of loop")
