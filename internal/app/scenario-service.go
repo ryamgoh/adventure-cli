@@ -10,14 +10,15 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/joho/godotenv"
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
 const (
-	MIN_OPTIONS  int = 2
-	MAX_OPTIONS  int = 4
-	MAX_RETRIES  int = 5
+	MIN_OPTIONS int = 2
+	MAX_OPTIONS int = 4
+	MAX_RETRIES int = 5
 )
 
 // Creates the scenario background
@@ -159,11 +160,7 @@ func CallOpenAILLM(
 }
 
 // Usage in your choice builder:
-func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
-	if nChoices < MIN_OPTIONS {
-		return nil, fmt.Errorf("OpenAI LLM expects exactly %d options for this prompt style", MIN_OPTIONS)
-	}
-
+func GetChoicesFromLlm(state *GameState) (*huh.Form, error) {
 	// Load environment variables from .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -178,29 +175,44 @@ func RunChoiceBuilderN(state *GameState, nChoices int) (*huh.Form, error) {
 
 	ctx := context.Background()
 	// Initialize OpenAI client
-	openaiLLM, err := openai.New(openai.WithToken(apiKey))
+	openaiLLM, err := openai.New(openai.WithToken(apiKey), openai.WithModel("gpt-4.1-nano"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize OpenAI client: %w", err)
 	}
 
 	// Make call to LLM
 	var (
-		narration string
-		options   []string
-		retryErr  error
+		narration   string
+		options     []string
+		retryErr    error
+		maxRetryErr error
 	)
-	for tries:= 1; tries <= MAX_RETRIES; tries++ {
-		narration, options, retryErr = CallOpenAILLM(
-			ctx, openaiLLM, state.EventHistory,
-			state.NextSteps.Description, state.Narration.Description,
-		)
-		if retryErr == nil && len(options) >= MIN_OPTIONS && len(options) <= MAX_OPTIONS {
-			break
-		}
-		if tries >= MAX_RETRIES {
-			return nil, fmt.Errorf("took too long to retry")
-		}
-		log.Printf("Retry %d/%d: %v", tries, MAX_RETRIES, retryErr)
+
+	spinnerError := spinner.New().Title("Generating your choices").
+		Action(
+			func() {
+				for tries := 1; tries <= MAX_RETRIES; tries++ {
+					narration, options, retryErr = CallOpenAILLM(
+						ctx, openaiLLM, state.EventHistory,
+						state.NextSteps.Description, state.Narration.Description,
+					)
+					if retryErr == nil && len(options) >= MIN_OPTIONS && len(options) <= MAX_OPTIONS {
+						break
+					}
+					log.Printf("Retry %d/%d: %v", tries, MAX_RETRIES, retryErr)
+					if tries >= MAX_RETRIES {
+						maxRetryErr = fmt.Errorf("MAX Retries Failed")
+					}
+				}
+			},
+		).Run()
+
+	if (spinnerError != nil) {
+		return nil, spinnerError
+	}
+
+	if maxRetryErr != nil {
+		return nil, maxRetryErr
 	}
 
 	// Update narration
